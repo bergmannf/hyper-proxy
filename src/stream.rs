@@ -12,7 +12,7 @@ use tokio_native_tls::TlsStream;
 #[cfg(feature = "openssl-tls")]
 use tokio_openssl::SslStream as OpenSslStream;
 
-use hyper::client::connect::{Connected, Connection};
+use hyper_util::client::legacy::connect::{Connected, Connection};
 
 #[cfg(feature = "rustls-base")]
 pub type TlsStream<R> = RustlsStream<R>;

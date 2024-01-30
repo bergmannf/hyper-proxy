@@ -2,8 +2,10 @@
 //!
 //! # Example
 //! ```rust,no_run
-//! use hyper::{Client, Request, Uri, body::HttpBody};
-//! use hyper::client::HttpConnector;
+//! use hyper::{Request, Uri};
+//! use hyper_util::client::legacy::Client;
+//! use hyper_util::client::legacy::connect::HttpConnector;
+//! use http_body_util::Empty;
 //! use futures_util::{TryFutureExt, TryStreamExt};
 //! use hyper_proxy::{Proxy, ProxyConnector, Intercept};
 //! use headers::Authorization;
@@ -27,7 +29,7 @@
 //!     // Connecting to http will trigger regular GETs and POSTs.
 //!     // We need to manually append the relevant headers to the request
 //!     let uri: Uri = "http://my-remote-website.com".parse().unwrap();
-//!     let mut req = Request::get(uri.clone()).body(hyper::Body::empty()).unwrap();
+//!     let mut req = Request::get(uri.clone()).body(Empty::default()).unwrap();
 //!
 //!     if let Some(headers) = proxy.http_headers(&uri) {
 //!         req.headers_mut().extend(headers.clone().into_iter());
@@ -58,7 +60,7 @@ mod stream;
 mod tunnel;
 
 use http::header::{HeaderMap, HeaderName, HeaderValue};
-use hyper::{service::Service, Uri};
+use hyper::{Uri};
 
 use futures_util::future::TryFutureExt;
 use std::{fmt, io, sync::Arc};
@@ -270,7 +272,8 @@ impl<C: fmt::Debug> fmt::Debug for ProxyConnector<C> {
     }
 }
 
-impl<C> ProxyConnector<C> {
+impl<C> ProxyConnector<C>
+where C: tower_service::Service<Uri> {
     /// Create a new secured Proxies
     #[cfg(feature = "tls")]
     pub fn new(connector: C) -> Result<Self, io::Error> {
@@ -419,9 +422,9 @@ macro_rules! mtry {
     };
 }
 
-impl<C> Service<Uri> for ProxyConnector<C>
+impl<C> tower_service::Service<Uri> for ProxyConnector<C>
 where
-    C: Service<Uri>,
+    C: tower_service::Service<Uri>,
     C::Response: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     C::Future: Send + 'static,
     C::Error: Into<BoxError>,
@@ -440,13 +443,13 @@ where
 
     fn call(&mut self, uri: Uri) -> Self::Future {
         if let (Some(p), Some(host)) = (self.match_proxy(&uri), uri.host()) {
-            if uri.scheme() == Some(&http::uri::Scheme::HTTPS) || p.force_connect {
+            if uri.scheme() == Some(&hyper::http::uri::Scheme::HTTPS) || p.force_connect {
                 let host = host.to_owned();
-                let port = uri.port_u16().unwrap_or(if uri.scheme() == Some(&http::uri::Scheme::HTTP) { 80 } else { 443 });
+                let port = uri.port_u16().unwrap_or(if uri.scheme() == Some(&hyper::http::uri::Scheme::HTTP) { 80 } else { 443 });
                 let tunnel = tunnel::new(&host, port, &p.headers);
                 let connection =
                     proxy_dst(&uri, &p.uri).map(|proxy_url| self.connector.call(proxy_url));
-                let tls = if uri.scheme() == Some(&http::uri::Scheme::HTTPS) {
+                let tls = if uri.scheme() == Some(&hyper::http::uri::Scheme::HTTPS) {
                     self.tls.clone()
                 } else {
                     None
